@@ -1,0 +1,214 @@
+Here's an approach for implementing the described functionality in a React application using functional components and Redux:
+
+Steps:
+Set up the project:
+
+Create a React project using create-react-app.
+Install dependencies: redux, react-redux, redux-thunk, and axios for API calls.
+bash
+Copy code
+npx create-react-app dummy-json-products
+cd dummy-json-products
+npm install redux react-redux redux-thunk axios
+Create Redux Store and Actions:
+
+Set up Redux for managing product and category data.
+Use Redux Thunk for handling asynchronous API requests.
+redux/actions/productActions.js
+javascript
+Copy code
+import axios from 'axios';
+
+export const fetchCategories = () => async (dispatch) => {
+  try {
+    const response = await axios.get('https://dummyjson.com/products/categories');
+    dispatch({ type: 'FETCH_CATEGORIES_SUCCESS', payload: response.data });
+  } catch (error) {
+    dispatch({ type: 'FETCH_CATEGORIES_FAIL', payload: error.message });
+  }
+};
+
+export const fetchProducts = (category = '', searchQuery = '', skip = 0) => async (dispatch) => {
+  try {
+    const response = await axios.get(`https://dummyjson.com/products`, {
+      params: { limit: 10, skip, category, q: searchQuery },
+    });
+    dispatch({ type: 'FETCH_PRODUCTS_SUCCESS', payload: response.data });
+  } catch (error) {
+    dispatch({ type: 'FETCH_PRODUCTS_FAIL', payload: error.message });
+  }
+};
+redux/reducers/productReducer.js
+javascript
+Copy code
+const initialState = {
+  categories: [],
+  products: [],
+  loading: false,
+  error: null,
+};
+
+const productReducer = (state = initialState, action) => {
+  switch (action.type) {
+    case 'FETCH_CATEGORIES_SUCCESS':
+      return { ...state, categories: action.payload };
+    case 'FETCH_PRODUCTS_SUCCESS':
+      return {
+        ...state,
+        products: [...state.products, ...action.payload.products],
+      };
+    case 'FETCH_CATEGORIES_FAIL':
+    case 'FETCH_PRODUCTS_FAIL':
+      return { ...state, error: action.payload };
+    default:
+      return state;
+  }
+};
+
+export default productReducer;
+redux/store.js
+javascript
+Copy code
+import { createStore, applyMiddleware, combineReducers } from 'redux';
+import thunk from 'redux-thunk';
+import { composeWithDevTools } from 'redux-devtools-extension';
+import productReducer from './reducers/productReducer';
+
+const rootReducer = combineReducers({
+  products: productReducer,
+});
+
+const store = createStore(
+  rootReducer,
+  composeWithDevTools(applyMiddleware(thunk))
+);
+
+export default store;
+Create Components:
+Use functional components to display categories and products.
+Handle search input and category selection as query parameters.
+components/ProductList.js
+javascript
+Copy code
+import React, { useEffect, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import { fetchCategories, fetchProducts } from '../redux/actions/productActions';
+import { useLocation, useHistory } from 'react-router-dom';
+
+const ProductList = () => {
+  const dispatch = useDispatch();
+  const { categories, products } = useSelector((state) => state.products);
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [skip, setSkip] = useState(0);
+  const location = useLocation();
+  const history = useHistory();
+
+  useEffect(() => {
+    dispatch(fetchCategories());
+    dispatch(fetchProducts());
+  }, [dispatch]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const category = params.get('category') || '';
+    const search = params.get('search') || '';
+    setSelectedCategory(category);
+    setSearchQuery(search);
+    dispatch(fetchProducts(category, search, 0)); // Reset skip when search or category changes
+  }, [location.search, dispatch]);
+
+  const handleCategoryChange = (category) => {
+    setSkip(0);
+    const queryParams = new URLSearchParams();
+    if (category) queryParams.set('category', category);
+    if (searchQuery) queryParams.set('search', searchQuery);
+    history.push({ search: queryParams.toString() });
+  };
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    setSkip(0);
+    const queryParams = new URLSearchParams();
+    if (selectedCategory) queryParams.set('category', selectedCategory);
+    if (searchQuery) queryParams.set('search', searchQuery);
+    history.push({ search: queryParams.toString() });
+  };
+
+  const loadMore = () => {
+    setSkip(skip + 10);
+    dispatch(fetchProducts(selectedCategory, searchQuery, skip + 10));
+  };
+
+  return (
+    <div>
+      <form onSubmit={handleSearch}>
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search products..."
+        />
+        <button type="submit">Search</button>
+      </form>
+
+      <div>
+        <h2>Categories</h2>
+        <select
+          value={selectedCategory}
+          onChange={(e) => handleCategoryChange(e.target.value)}
+        >
+          <option value="">All</option>
+          {categories.map((category) => (
+            <option key={category} value={category}>
+              {category}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <h2>Products</h2>
+        <div>
+          {products.map((product) => (
+            <div key={product.id}>
+              <h3>{product.title}</h3>
+              <p>{product.description}</p>
+            </div>
+          ))}
+        </div>
+        <button onClick={loadMore}>Load More</button>
+      </div>
+    </div>
+  );
+};
+
+export default ProductList;
+Set up Routing:
+Use React Router to manage query parameters for category and search input.
+App.js
+javascript
+Copy code
+import React from 'react';
+import { Provider } from 'react-redux';
+import { BrowserRouter as Router, Route } from 'react-router-dom';
+import store from './redux/store';
+import ProductList from './components/ProductList';
+
+function App() {
+  return (
+    <Provider store={store}>
+      <Router>
+        <Route path="/" component={ProductList} />
+      </Router>
+    </Provider>
+  );
+}
+
+export default App;
+Notes on Limitations:
+Pagination without UI controls: Fetching products in batches but displaying them all on a single page can be resource-intensive with large datasets.
+Search behavior: The search query is applied to the dummy API and might not support advanced filtering.
+No deep category filtering: The API might not support filtering products by subcategories.
+Conclusion:
+This setup ensures that products are fetched incrementally (in batches of 10), search queries and selected categories are managed via query parameters, and Redux handles the state. You can improve UI/UX with more polished components and better styling.
